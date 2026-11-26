@@ -1,0 +1,60 @@
+name: Draw structures
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - chapters.json
+      - draw_structures.py
+      - requirements.txt
+      - .github/workflows/draw-structures.yml
+  pull_request:
+    paths:
+      - chapters.json
+      - draw_structures.py
+      - requirements.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never run two redraws at once on the same branch (they would fight over the push).
+concurrency:
+  group: draw-structures-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Fails with the question id and SMILES of every bad entry (shown as an error annotation).
+      - name: Validate SMILES
+        run: python draw_structures.py --check
+
+      # Pull requests only get the validation above; drawing and committing is for pushes.
+      - name: Draw structures
+        if: github.event_name != 'pull_request'
+        run: python draw_structures.py
+
+      - name: Commit drawings
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add chapters.json index.html
+          if git diff --cached --quiet; then
+            echo "Drawings already up to date"
+            exit 0
+          fi
+          git commit -m "Redraw structures with RDKit [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
